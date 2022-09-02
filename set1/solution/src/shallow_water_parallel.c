@@ -7,6 +7,8 @@
 
 #include "../inc/argument_utils.h"
 
+#include <mpi.h>
+
 typedef int64_t int_t;
 typedef double real_t;
 
@@ -56,8 +58,13 @@ int
 main ( int argc, char **argv )
 {
     // TODO 1 Initialize MPI
-
-
+    int size, rank;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    //printf("Hello, from process %d of %d!\n", rank, size); //Check if we have the correct amount of processes
+    
     // TODO 2 Parse arguments in the rank 0 processes
     // and broadcast to other processes
 
@@ -108,7 +115,7 @@ main ( int argc, char **argv )
     domain_finalize();
 
     // TODO 1 Finalize MPI
-
+    MPI_Finalize();
 
     exit ( EXIT_SUCCESS );
 }
