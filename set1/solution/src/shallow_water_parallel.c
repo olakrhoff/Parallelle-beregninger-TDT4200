@@ -198,7 +198,7 @@ domain_init ( void )
     }
 
     dx = domain_size / (real_t) N;
-    dt = 0.5*dx;
+    dt = 0.1*dx;
 
 }
 
