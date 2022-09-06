@@ -65,12 +65,11 @@ int main(int argc, char **argv)
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
     //printf("Hello, from process %d of %d!\n", rank, size); //Check if we have the correct amount of processes
     
     // TODO 2 Parse arguments in the rank 0 processes
     // and broadcast to other processes
-    OPTIONS *options;
+    OPTIONS *options = calloc(sizeof(OPTIONS), 1); //We need to allocate memory for the options
     if (rank == 0)
         options = parse_args(argc, argv);
     
@@ -82,7 +81,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Argument parsing failed\n");
         exit(1);
     }
-    
     N = options->N;
     max_iteration = options->max_iteration;
     snapshot_frequency = options->snapshot_frequency;
@@ -122,9 +120,10 @@ int main(int argc, char **argv)
     
     domain_finalize();
     
+    free(options);
+    
     // TODO 1 Finalize MPI
     MPI_Finalize();
-    
     exit(EXIT_SUCCESS);
 }
 
@@ -132,28 +131,28 @@ int main(int argc, char **argv)
 void time_step(void)
 {
     // TODO 4 Time step calculations
-    
-    for (int_t x = 0; x <= N + 1; x++)
+    int64_t new_N = N / size;
+    for (int_t x = 0; x <= new_N + 1; x++)
     {
         DU(x) = PN(x) * U(x) * U(x)
                 + 0.5 * gravity * PN(x) * PN(x) / density;
     }
     
-    for (int_t x = 1; x <= N; x++)
+    for (int_t x = 1; x <= new_N; x++)
     {
         PNU_next(x) = 0.5 * (PNU(x + 1) + PNU(x - 1)) - dt * (
                 (DU(x + 1) - DU(x - 1)) / (2 * dx)
-        );
+                );
     }
     
-    for (int_t x = 1; x <= N; x++)
+    for (int_t x = 1; x <= new_N; x++)
     {
         PN_next(x) = 0.5 * (PN(x + 1) + PN(x - 1)) - dt * (
                 (PNU(x + 1) - PNU(x - 1)) / (2 * dx)
-        );
+                );
     }
     
-    for (int_t x = 1; x <= N; x++)
+    for (int_t x = 1; x <= new_N; x++)
     {
         U(x) = PNU_next(x) / PN_next(x);
     }
@@ -163,10 +162,15 @@ void time_step(void)
 void boundary_condition(real_t *domain_variable, int sign)
 {
     // TODO 5 Boundary conditions
-
+    if (rank != 0 && rank != size - 1)
+        return; //No edges, no bounds
+        
+    int64_t new_N = N / size;
 #define VAR(x) domain_variable[(x)]
-    VAR(0) = sign * VAR(2);
-    VAR(N + 1) = sign * VAR(N - 1);
+    if (rank == 0)
+        VAR(0) = sign * VAR(2);
+    if (rank == size - 1)
+        VAR(new_N + 1) = sign * VAR(new_N - 1);
 #undef VAR
 }
 
@@ -177,9 +181,7 @@ void domain_init()
     // and initialize data for the sub-grid
     
     //Get the number of grids to have main responsibility for
-    uint64_t new_N = N / size; //Assume is divisible by number of processes
-    
-    
+    int64_t new_N = N / size; //Assume is divisible by number of processes
     
     mass[0] = calloc((new_N + 2), sizeof(real_t));
     mass[1] = calloc((new_N + 2), sizeof(real_t));
@@ -191,12 +193,13 @@ void domain_init()
     acceleration_x = calloc((new_N + 2), sizeof(real_t));
     
     // Data initialization
-    for (int_t x = new_N * rank + 1; x <= new_N * (rank + 1); ++x)
+    int64_t x_offset = new_N * rank;
+    for (int_t x = 1; x <= new_N; ++x)
     {
         PN(x) = 1e-3;
         PNU(x) = 0.0;
         
-        real_t c = x - N / 2;
+        real_t c = (x + x_offset) - N / 2;
         if (sqrt(c * c) < N / 20.0)
         {
             PN(x) -= 5e-4 * exp(
