@@ -41,7 +41,7 @@ void time_step(void);
 
 void boundary_condition(real_t *domain_variable, int sign);
 
-void domain_init(int rank, int size);
+void domain_init(int group_num, int sub_groups);
 
 void domain_save(int_t iteration);
 
@@ -56,7 +56,6 @@ swap(real_t **m1, real_t **m2)
     *m1 = *m2;
     *m2 = tmp;
 }
-
 
 
 int main(int argc, char **argv)
@@ -172,23 +171,36 @@ void boundary_condition(real_t *domain_variable, int sign)
 }
 
 
-void domain_init(int rank, int size)
+void domain_init(int group_num, int sub_groups)
 {
     // TODO 3 Allocate space for each process' sub-grid
     // and initialize data for the sub-grid
     
     //The total amount of elements will be N + 2 (with boundaries)
-    mass[0] = calloc((N + 2), sizeof(real_t));
-    mass[1] = calloc((N + 2), sizeof(real_t));
+    uint64_t new_N = N / sub_groups + 2; //Assume that it is divisible
+    if (group_num == 0)
+        ++new_N; //We need an extra value at the edges to buffer for the solution for the actual edges
+    if (group_num == sub_groups - 1)
+        ++new_N; //We need an extra value at the edges to buffer for the solution for the actual edges
     
-    mass_velocity_x[0] = calloc((N + 2), sizeof(real_t));
-    mass_velocity_x[1] = calloc((N + 2), sizeof(real_t));
+    mass[0] = calloc(new_N, sizeof(real_t));
+    mass[1] = calloc(new_N, sizeof(real_t));
     
-    velocity_x = calloc((N + 2), sizeof(real_t));
-    acceleration_x = calloc((N + 2), sizeof(real_t));
+    mass_velocity_x[0] = calloc(new_N, sizeof(real_t));
+    mass_velocity_x[1] = calloc(new_N, sizeof(real_t));
+    
+    velocity_x = calloc(new_N, sizeof(real_t));
+    acceleration_x = calloc(new_N, sizeof(real_t));
+    
+    
+    int first_grid, last_grid;
+    if (group_num == 0)
+        ++first_grid;
+    if (group_num == sub_groups - 1)
+        ++last_grid;
     
     // Data initialization
-    for (int_t x = 1; x <= N; x++)
+    for (int_t x = first_grid; x < new_N - last_grid; x++)
     {
         PN(x) = 1e-3;
         PNU(x) = 0.0;
