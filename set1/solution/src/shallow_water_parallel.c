@@ -41,7 +41,7 @@ void time_step(void);
 
 void boundary_condition(real_t *domain_variable, int sign);
 
-void domain_init(int group_num, int sub_groups);
+void domain_init();
 
 void domain_save(int_t iteration);
 
@@ -58,10 +58,10 @@ swap(real_t **m1, real_t **m2)
 }
 
 
+int size, rank;
 int main(int argc, char **argv)
 {
     // TODO 1 Initialize MPI
-    int size, rank;
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
     
     // TODO 3 Allocate space for each process' sub-grid
     // and initialize data for the sub-grid
-    domain_init(rank, size);
+    domain_init();
     
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
@@ -171,36 +171,27 @@ void boundary_condition(real_t *domain_variable, int sign)
 }
 
 
-void domain_init(int group_num, int sub_groups)
+void domain_init()
 {
     // TODO 3 Allocate space for each process' sub-grid
     // and initialize data for the sub-grid
     
-    //The total amount of elements will be N + 2 (with boundaries)
-    uint64_t new_N = N / sub_groups + 2; //Assume that it is divisible
-    if (group_num == 0)
-        ++new_N; //We need an extra value at the edges to buffer for the solution for the actual edges
-    if (group_num == sub_groups - 1)
-        ++new_N; //We need an extra value at the edges to buffer for the solution for the actual edges
-    
-    mass[0] = calloc(new_N, sizeof(real_t));
-    mass[1] = calloc(new_N, sizeof(real_t));
-    
-    mass_velocity_x[0] = calloc(new_N, sizeof(real_t));
-    mass_velocity_x[1] = calloc(new_N, sizeof(real_t));
-    
-    velocity_x = calloc(new_N, sizeof(real_t));
-    acceleration_x = calloc(new_N, sizeof(real_t));
+    //Get the number of grids to have main responsibility for
+    uint64_t new_N = N / size; //Assume is divisible by number of processes
     
     
-    int first_grid, last_grid;
-    if (group_num == 0)
-        ++first_grid;
-    if (group_num == sub_groups - 1)
-        ++last_grid;
+    
+    mass[0] = calloc((new_N + 2), sizeof(real_t));
+    mass[1] = calloc((new_N + 2), sizeof(real_t));
+    
+    mass_velocity_x[0] = calloc((new_N + 2), sizeof(real_t));
+    mass_velocity_x[1] = calloc((new_N + 2), sizeof(real_t));
+    
+    velocity_x = calloc((new_N + 2), sizeof(real_t));
+    acceleration_x = calloc((new_N + 2), sizeof(real_t));
     
     // Data initialization
-    for (int_t x = first_grid; x < new_N - last_grid; x++)
+    for (int_t x = new_N * rank + 1; x <= new_N * (rank + 1); ++x)
     {
         PN(x) = 1e-3;
         PNU(x) = 0.0;
@@ -210,7 +201,7 @@ void domain_init(int group_num, int sub_groups)
         {
             PN(x) -= 5e-4 * exp(
                     -4 * pow(c, 2.0) / (real_t) (N)
-            );
+                    );
         }
         
         PN(x) *= density;
@@ -218,7 +209,6 @@ void domain_init(int group_num, int sub_groups)
     
     dx = domain_size / (real_t) N;
     dt = 0.1 * dx;
-    
 }
 
 
