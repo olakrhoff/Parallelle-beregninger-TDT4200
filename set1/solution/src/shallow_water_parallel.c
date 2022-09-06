@@ -71,7 +71,10 @@ int main(int argc, char **argv)
     // and broadcast to other processes
     OPTIONS *options = calloc(sizeof(OPTIONS), 1); //We need to allocate memory for the options
     if (rank == 0)
+    {
+        free(options);
         options = parse_args(argc, argv);
+    }
     
     //Could use the error code in the if-statement with options to exit on error
     int error_code = MPI_Bcast(options, sizeof(OPTIONS), MPI_BYTE, 0, MPI_COMM_WORLD);
