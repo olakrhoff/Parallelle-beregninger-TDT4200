@@ -197,8 +197,11 @@ void domain_init()
     
     // Data initialization
     int64_t x_offset = new_N * rank;
-    for (int_t x = 1; x <= new_N; ++x)
+    for (int_t x = 0; x <= new_N + 1; ++x)
     {
+        if ((rank == 0 && x == 0) || (rank == size - 1 && x == new_N + 1))
+            continue;
+        
         PN(x) = 1e-3;
         PNU(x) = 0.0;
         
@@ -226,7 +229,16 @@ void domain_save(int_t iteration)
     sprintf(filename, "data/%.5ld.bin", index);
     
     // TODO 6 MPI I/O
+    MPI_File out_file;
+    MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &out_file);
     
+    MPI_Offset offset = rank * sizeof(real_t);
+    
+    MPI_File_write_at_all(out_file, offset, &mass[0][1], N / size, MPI_DOUBLE, MPI_STATUS_IGNORE);
+    
+    MPI_File_close(&out_file);
+    
+    /*
     FILE *out = fopen(filename, "wb");
     if (!out)
     {
@@ -235,6 +247,7 @@ void domain_save(int_t iteration)
     }
     fwrite(&mass[0][1], sizeof(real_t), N, out);
     fclose(out);
+     */
 }
 
 
