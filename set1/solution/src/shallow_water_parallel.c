@@ -74,7 +74,7 @@ int main(int argc, char **argv)
         options = parse_args(argc, argv);
     else
         options = calloc(sizeof(OPTIONS), 1); //We need to allocate memory for the options
-    
+    printf("N: %d, new_N: %d\n", options->N, options->N / size);
     //Could use the error code in the if-statement with options to exit on error
     int error_code = MPI_Bcast(options, sizeof(OPTIONS), MPI_BYTE, 0, MPI_COMM_WORLD);
     
@@ -90,10 +90,44 @@ int main(int argc, char **argv)
     // TODO 3 Allocate space for each process' sub-grid
     // and initialize data for the sub-grid
     domain_init();
-    
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
         // TODO 7 Communicate border values
+        int_t new_N = N / size;
+        
+        real_t values[2];
+        values[0] = mass[0][new_N];
+        values[1] = mass_velocity_x[0][new_N];
+        if (rank != size - 1)
+        {
+            //printf("%d: Sending [%f, %f] from %d to %d\n", iteration, values[0], values[1], rank, (rank + 1) % size);
+            //First we send our east value to our east neighbour in a ring
+            MPI_Send(&values, 2, MPI_DOUBLE, (rank + 1) % size, 0 /*Tag*/, MPI_COMM_WORLD);
+        }
+        if (rank != 0) //It makes no sense to get the value from the other side of the water
+        {
+            //Then we receive the value from the west and put it in
+            MPI_Recv(&values, 2, MPI_DOUBLE, (rank - 1 + size) % size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            //printf("%d: Receiving [%f, %f] from %d to %d\n", iteration, values[0], values[1], (rank - 1 + size) % size, rank);
+            mass[0][0] = values[0];
+            mass_velocity_x[0][0] = values[1];
+        }
+        
+        
+        values[0] = mass[0][1];
+        values[1] = mass_velocity_x[0][1];
+        if (rank != 0)
+        {
+            //Second we send our west value to our west neighbour in a ring
+            MPI_Send(&values, 2, MPI_DOUBLE, (rank - 1 + size) % size, 0 /*Tag*/, MPI_COMM_WORLD);
+        }
+        if (rank != size - 1) //It makes no sense to get the value from the other side of the water
+        {
+           //Then we receive the value from the east and put it in
+           MPI_Recv(&values, 2, MPI_DOUBLE, (rank + 1) % size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+           mass[0][new_N + 1] = values[0];
+           mass_velocity_x[0][new_N + 1] = values[1];
+        }
         
         
         // TODO 5 Boundary conditions
@@ -121,7 +155,6 @@ int main(int argc, char **argv)
     }
     
     domain_finalize();
-    
     free(options);
     
     // TODO 1 Finalize MPI
@@ -222,6 +255,7 @@ void domain_init()
 
 void domain_save(int_t iteration)
 {
+    int_t new_N = N / size;
     int_t index = iteration / snapshot_frequency;
     char filename[256];
     memset(filename, 0, 256 * sizeof(char));
@@ -231,22 +265,11 @@ void domain_save(int_t iteration)
     MPI_File out_file;
     MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &out_file);
     
-    MPI_Offset offset = rank * sizeof(real_t);
+    MPI_Offset offset = rank * new_N * sizeof(real_t);
     
-    MPI_File_write_at_all(out_file, offset, &mass[0][1], N / size, MPI_DOUBLE, MPI_STATUS_IGNORE);
+    MPI_File_write_at_all(out_file, offset, &mass[0][1], new_N, MPI_DOUBLE, MPI_STATUS_IGNORE);
     
     MPI_File_close(&out_file);
-    
-    /*
-    FILE *out = fopen(filename, "wb");
-    if (!out)
-    {
-        fprintf(stderr, "Failed to open file: %s\n", filename);
-        exit(1);
-    }
-    fwrite(&mass[0][1], sizeof(real_t), N, out);
-    fclose(out);
-     */
 }
 
 
