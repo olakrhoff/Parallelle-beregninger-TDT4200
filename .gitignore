@@ -7,5 +7,5 @@
 *.PNG
 *.mp4
 *.MP4
-set1/solution/data/*.bin
+set*/solution/data/*.bin
 .idea
