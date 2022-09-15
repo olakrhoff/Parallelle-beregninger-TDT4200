@@ -1,10 +1,16 @@
 # TDT4200 Problem set 2: Graded MPI
 
 ## Finite difference approximation of the 2D shallow water equations using MPI
-In this assignment you will work on an implementation of the Finite Difference Method (FDM) for solving the 2D shallow water equations using the Message Passing Interface (MPI). Information on solving the shallow water equations using FDM and on parallelization with MPI is described in the lecture slides.
+In this assignment you will work on an implementation of the Finite Difference Method (FDM)
+for solving the 2D shallow water equations using the Message Passing Interface (MPI).
+Information on solving the shallow water equations using FDM and on parallelization with MPI 
+is described in the lecture slides.
 
-The serial solution can be found in `shallow_water_serial.c` and should be kept as a reference. A skeleton for your parallel implementation can be found in `shallow_water_parallel.c`, in which you should write your parallel implementation. Note that
-some MPI functionality is already implemented. You should complete the parallel implementation as described by the problem set description.
+The serial solution can be found in `shallow_water_serial.c` and should be kept as a reference.
+A skeleton for your parallel implementation can be found in `shallow_water_parallel.c`,
+in which you should write your parallel implementation. 
+Note that some MPI functionality is already implemented. 
+You should complete the parallel implementation as described by the problem set description.
 
 ## Run
 ### Setup
