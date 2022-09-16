@@ -90,6 +90,10 @@ void swap(real_t **t1, real_t **t2)
     *t2 = tmp;
 }
 
+const int NUM_DIMS = 2; //The number of dimensions is always 2
+int dims[NUM_DIMS] = {
+        0}; //The list will contain the distribution of processes among the dimensions, but needs to be all zeros when passed as an argument
+int periods[NUM_DIMS] = {0}; //Init the array to zeros
 
 int main(int argc, char **argv)
 {
@@ -99,6 +103,14 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
+    if (MPI_Dims_create(comm_size, NUM_DIMS, dims)) //Let MPI distribute the processes among the dimensions
+        exit(EXIT_FAILURE); //There was an error code thrown on the call
+    //printf("\n\ndims: (%d, %d)\n\n", dims[0], dims[1]);
+    int reorder = 1; //We want to reorder the ranking, so it is more compliant with the new communicator
+    
+    MPI_Cart_create(MPI_COMM_WORLD, NUM_DIMS, dims, periods, reorder,
+                    &cart); //Create the communicator with cartesian topology
+    MPI_Comm_rank(cart, &rank); //Get the process rank in the new communicator
     
     if (MPI_RANK_ROOT)
     {
@@ -123,13 +135,70 @@ int main(int argc, char **argv)
     // Uncomment domain_save() and create_types() after TODO2 is complete
     domain_init();
     
-    // create_types();
+    create_types();
     
     gettimeofday(&t_start, NULL);
     
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
         // TODO 5 Implement border exchange
+        
+        //To find out who our neighbours are is not necessary to do more than once
+        static int north, east, south, west;
+        static int found_neighbours = 0;
+        
+        //( 1, 1) y-dim up shift "down/south"
+        //( 0, 1) x-dim up shift "right/east"
+        if (!found_neighbours)
+        {
+            //north (source_rank) get the rank of the value above, that gets shifted down
+            //south (destination_rank) gets the rank of the value that was below before the shift
+            MPI_Cart_shift(cart, 1, 1, &north, &south);
+            //west (source_rank) get the rank of the value to the left, that gets shifted right
+            //east (destination_rank) gets the rank of the value that was to the right, before the shift
+            MPI_Cart_shift(cart, 0, 1, &west, &east);
+            
+            found_neighbours = 1;
+        }
+        
+        
+        //TODO: Implement a datatype that contains the data we want to transfer.
+        //MPI_Datatype tuple_data;
+        
+        
+        //North-South
+        //Send north and receive from south
+        real_t *send_data = &PN(1, 1);
+        real_t *recv_data = &PN(local_rows + 1, 1);
+
+        MPI_Sendrecv(send_data, local_cols - 2, MPI_DOUBLE, north, 0 /*Tag*/,
+                     recv_data, local_cols - 2, MPI_DOUBLE, south, 0 /*Tag*/,
+                     cart, MPI_STATUS_IGNORE);
+
+        //South-North
+        //Send south and receive from north
+        send_data = &PN(local_rows, 1);
+        recv_data = &PN(0, 1);
+        MPI_Sendrecv(send_data, local_cols - 2, MPI_DOUBLE, south, 0 /*Tag*/,
+                     recv_data, local_cols - 2, MPI_DOUBLE, north, 0 /*Tag*/,
+                     cart, MPI_STATUS_IGNORE);
+
+        //East-West
+        //Send east and receive from west
+        send_data = &PN(1, local_cols);
+        recv_data = &PN(1, 0);
+        MPI_Sendrecv(send_data, local_rows - 2, MPI_DOUBLE, east, 0 /*Tag*/,
+                     recv_data, local_rows - 2, MPI_DOUBLE, west, 0 /*Tag*/,
+                     cart, MPI_STATUS_IGNORE);
+
+        //West-East
+        //Send west and receive from east
+        send_data = &PN(1, 1);
+        recv_data = &PN(1, local_cols + 1);
+        MPI_Sendrecv(send_data, local_rows - 2, MPI_DOUBLE, west, 0 /*Tag*/,
+                     recv_data, local_rows - 2, MPI_DOUBLE, east, 0 /*Tag*/,
+                     cart, MPI_STATUS_IGNORE);
+        
         
         // TODO 4 Change application of boundary condition to match cartesian topology
         boundary_condition(mass[0], 1);
@@ -151,7 +220,7 @@ int main(int argc, char **argv)
                 );
             }
             
-            // domain_save ( iteration );
+            domain_save(iteration);
         }
         
         swap(&mass[0], &mass[1]);
@@ -176,21 +245,21 @@ int main(int argc, char **argv)
 void time_step(void)
 {
     // TODO 3 Update the area of iteration in the time step
-    for (int_t y = 1; y <= N; y++)
-        for (int_t x = 1; x <= N; x++)
+    for (int_t y = 1; y <= local_rows; y++)
+        for (int_t x = 1; x <= local_cols; x++)
         {
             U(y, x) = PNU(y, x) / PN(y, x);
             V(y, x) = PNV(y, x) / PN(y, x);
         }
     
-    for (int_t y = 1; y <= N; y++)
-        for (int_t x = 1; x <= N; x++)
+    for (int_t y = 1; y <= local_rows; y++)
+        for (int_t x = 1; x <= local_cols; x++)
         {
             PNUV(y, x) = PN(y, x) * U(y, x) * V(y, x);
         }
     
-    for (int_t y = 0; y <= N + 1; y++)
-        for (int_t x = 0; x <= N + 1; x++)
+    for (int_t y = 0; y <= local_rows + 1; y++)
+        for (int_t x = 0; x <= local_cols + 1; x++)
         {
             DU(y, x) = PN(y, x) * U(y, x) * U(y, x)
                        + 0.5 * gravity * (PN(y, x) * PN(y, x) / density);
@@ -198,8 +267,8 @@ void time_step(void)
                        + 0.5 * gravity * (PN(y, x) * PN(y, x) / density);
         }
     
-    for (int_t y = 1; y <= N; y++)
-        for (int_t x = 1; x <= N; x++)
+    for (int_t y = 1; y <= local_rows; y++)
+        for (int_t x = 1; x <= local_cols; x++)
         {
             PNU_next(y, x) = 0.5 * (PNU(y, x + 1) + PNU(y, x - 1)) - dt * (
                     (DU(y, x + 1) - DU(y, x - 1)) / (2 * dx)
@@ -207,8 +276,8 @@ void time_step(void)
             );
         }
     
-    for (int_t y = 1; y <= N; y++)
-        for (int_t x = 1; x <= N; x++)
+    for (int_t y = 1; y <= local_rows; y++)
+        for (int_t x = 1; x <= local_cols; x++)
         {
             PNV_next(y, x) = 0.5 * (PNV(y + 1, x) + PNV(y - 1, x)) - dt * (
                     (DV(y + 1, x) - DV(y - 1, x)) / (2 * dx)
@@ -216,8 +285,8 @@ void time_step(void)
             );
         }
     
-    for (int_t y = 1; y <= N; y++)
-        for (int_t x = 1; x <= N; x++)
+    for (int_t y = 1; y <= local_rows; y++)
+        for (int_t x = 1; x <= local_cols; x++)
         {
             PN_next(y, x) = 0.25 * (PN(y, x + 1) + PN(y, x - 1) + PN(y + 1, x) + PN(y - 1, x)) - dt * (
                     (PNU(y, x + 1) - PNU(y, x - 1)) / (2 * dx)
@@ -230,16 +299,31 @@ void time_step(void)
 void boundary_condition(real_t *domain_variable, int sign)
 {
     // TODO 4 Change application of boundary condition to match cartesian topology
-#define VAR(y, x) domain_variable[(y)*(local_cols+2)+(x)]
-    VAR(0, 0) = sign * VAR(2, 2);
-    VAR(N + 1, 0) = sign * VAR(N - 1, 2);
-    VAR(0, N + 1) = sign * VAR(2, N - 1);
-    VAR(N + 1, N + 1) = sign * VAR(N - 1, N - 1);
     
-    for (int_t y = 1; y <= N; y++) VAR(y, 0) = sign * VAR(y, 2);
-    for (int_t y = 1; y <= N; y++) VAR(y, N + 1) = sign * VAR(y, N - 1);
-    for (int_t x = 1; x <= N; x++) VAR(0, x) = sign * VAR(2, x);
-    for (int_t x = 1; x <= N; x++) VAR(N + 1, x) = sign * VAR(N - 1, x);
+    //All places where N is used change to local_row if in y-coord, and local_col if in x-coord.
+    
+#define VAR(y, x) domain_variable[(y)*(local_cols+2)+(x)]
+    VAR(             0,             0) = sign * VAR(             2,              2); //North-West
+    VAR(local_rows + 1,             0) = sign * VAR(local_rows - 1,              2); //South-West
+    VAR(             0,local_cols + 1) = sign * VAR(             2, local_cols - 1); //North-East
+    VAR(local_rows + 1,local_cols + 1) = sign * VAR(local_rows - 1, local_cols - 1); //South-East
+    
+    for (int_t y = 1; y <= local_rows; y++) //West-side
+        VAR(y, 0) = sign * VAR(y, 2);
+    
+    for (int_t y = 1; y <= local_rows; y++) //East-side
+        VAR(y, local_cols + 1) = sign * VAR(y, local_cols - 1);
+    
+    for (int_t x = 1; x <= local_cols; x++) //North-side
+        VAR(0, x) = sign * VAR(2, x);
+    
+    for (int_t x = 1; x <= local_cols; x++) //South-side
+        VAR(local_rows + 1, x) = sign * VAR(local_rows - 1, x);
+    
+    /*for (int_t y = 0; y <= local_rows / 2; ++y)
+        for (int_t x = 0; x <= local_cols / 2; ++x)
+            VAR(y, x) = 0;
+            */
 #undef VAR
 }
 
@@ -265,8 +349,12 @@ void domain_init(void)
 {
     // TODO 2 Find the number of columns and rows of each subgrid
     // Hint: you can get useful information from the cartesian communicator
-    local_rows = N;
-    local_cols = N;
+    
+    //Divide by how many processes are in the dimensions
+    local_rows = N / dims[0];
+    local_cols = N / dims[1];
+    
+    //printf("\n\n%d: locals: (%d, %d)\n\n", rank, local_rows, local_cols);
     
     int_t local_size = (local_rows + 2) * (local_cols + 2);
     
@@ -288,8 +376,15 @@ void domain_init(void)
     
     // TODO 2 Find the local x and y offsets for each process' subgrid
     // Hint: you can get useful information from the cartesian communicator
-    int_t local_x_offset = 0;
-    int_t local_y_offset = 0;
+    
+    int coords[NUM_DIMS] = {0}; //The coordinates for the specific process in the grid
+    MPI_Cart_get(cart, NUM_DIMS, dims, periods, coords);
+    //printf("\n\n%d: coords: (%d, %d)\n\n", rank, coords[0], coords[1]);
+    
+    //We simply multiply the number of rows and cols with the coord in x and y directions.
+    int_t local_x_offset = local_cols * coords[1];
+    int_t local_y_offset = local_rows * coords[0];
+    //printf("\n\n%d: offset: (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset);
     
     for (int_t y = 1; y <= local_rows; y++)
     {
