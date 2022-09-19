@@ -82,7 +82,8 @@ void domain_save(int_t iteration);
 void domain_finalize(void);
 
 
-void swap(real_t **t1, real_t **t2)
+void
+swap(real_t **t1, real_t **t2)
 {
     real_t *tmp;
     tmp = *t1;
@@ -97,7 +98,6 @@ int periods[NUM_DIMS] = {0}; //Init the array to zeros
 
 //To find out who our neighbours are is not necessary to do more than once
 static int north, east, south, west;
-static int found_neighbours = 0;
 
 int main(int argc, char **argv)
 {
@@ -143,103 +143,67 @@ int main(int argc, char **argv)
     
     gettimeofday(&t_start, NULL);
     
+    //( 1, 1) y-dim up shift "down/south"
+    //( 0, 1) x-dim up shift "right/east"
+    //north (source_rank) get the rank of the value above, that gets shifted down
+    //south (destination_rank) gets the rank of the value that was below before the shift
+    MPI_Cart_shift(cart, 1, 1, &north, &south);
+    //west (source_rank) get the rank of the value to the left, that gets shifted right
+    //east (destination_rank) gets the rank of the value that was to the right, before the shift
+    MPI_Cart_shift(cart, 0, 1, &west, &east);
+    
+    
+    printf("\n\n%d: N: %d, E: %d, S: %d, W: %d\n\n", rank, north, east, south, west);
+    
+    MPI_Datatype column_datatype /*North-South*/;
+    
+    const int NUM_BLOCKS = 3; //mass, mass_v_x, mass_v_y
+    const MPI_Aint displacements[NUM_BLOCKS] = {0, &PNU(0, 0) - &PN(0, 0), &PNV(0, 0) - &PN(0,
+                                                                                            0)}; //The displacements are equal to the offset between the arrays in memory
+    int block_lengths_column[NUM_BLOCKS] = {local_rows};  //The number of elements in the row (minus the edges)
+    
+    //Datatype for one column
+    MPI_Type_create_hvector(local_rows,
+                            1, //The block length, which is just one value
+                            (local_cols + 2) *
+                            sizeof(real_t), //Displacement between each value (need to skip one row ahead)
+                            MPI_DOUBLE,
+                            &column_datatype);
+    MPI_Type_commit(&column_datatype);
+    
+    
+    
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
         // TODO 5 Implement border exchange
         
-        //( 1, 1) y-dim up shift "down/south"
-        //( 0, 1) x-dim up shift "right/east"
-        if (!found_neighbours)
+        //TODO: Define MPI_Datatype's to find the data instead.
+        
+        real_t *domain[3] = {&PN(0,0), &PNU(0,0), &PNV(0,0)};
+        for (int i = 0; i < 3; ++i)
         {
-            //north (source_rank) get the rank of the value above, that gets shifted down
-            //south (destination_rank) gets the rank of the value that was below before the shift
-            MPI_Cart_shift(cart, 1, 1, &north, &south);
-            //west (source_rank) get the rank of the value to the left, that gets shifted right
-            //east (destination_rank) gets the rank of the value that was to the right, before the shift
-            MPI_Cart_shift(cart, 0, 1, &west, &east);
+            #define VAR(y, x)domain[i][(y)*(local_cols+2)+(x)]
+            //Sending north, receiving from south
+            MPI_Sendrecv(&VAR(1, 1), 1, column_datatype, north, 0,
+                         &VAR(1, local_cols + 1), 1, column_datatype, south, 0,
+                         cart, MPI_STATUS_IGNORE);
             
-            //printf("\n\n%d: N: %d, E: %d, S: %d, W: %d\n\n", rank, north, east, south, west);
+            //Sending south, receiving from north
+            MPI_Sendrecv(&VAR(1, local_cols), 1, column_datatype, south, 0,
+                         &VAR(1, 0), 1, column_datatype, north, 0,
+                         cart, MPI_STATUS_IGNORE);
             
-            found_neighbours = 1;
+            //Sending east, receiving from west
+            MPI_Sendrecv(&VAR(local_rows, 1), local_cols, MPI_DOUBLE, east, 0,
+                         &VAR(0, 1), local_cols, MPI_DOUBLE, west, 0,
+                         cart, MPI_STATUS_IGNORE);
+            
+            //Sending west, receiving from east
+            MPI_Sendrecv(&VAR(1, 1), local_cols, MPI_DOUBLE, west, 0,
+                         &VAR(local_rows + 1, 1), local_cols, MPI_DOUBLE, east, 0,
+                         cart, MPI_STATUS_IGNORE);
+           #undef VAR
         }
-        
-        //We only need to create and commit these types once
-        MPI_Datatype all_row_datatype, all_col_datatype, one_col_datatype;
-        static int commited_datatypes = 0;
-        if (!commited_datatypes)
-        {
-            
-            const int NUM_BLOCKS = 3; //mass, mass_v_x, mass_v_y
-            const MPI_Aint displacements[NUM_BLOCKS] = {0, &PNU(0, 0) - &PN(0, 0), &PNV(0, 0) - &PN(0,
-                                                                                                    0)}; //The displacements are equal to the offset between the arrays in memory
-            int block_lengths_row[NUM_BLOCKS] = {local_cols};  //The number of elements in the row (minus the edges)
-            
-            //Datatype for all three rows
-            MPI_Type_create_hindexed(NUM_BLOCKS,
-                                     block_lengths_row,
-                                     displacements,
-                                     MPI_DOUBLE, //The data is doubles
-                                     &all_row_datatype);
-            MPI_Type_commit(&all_row_datatype);
-            
-            //Datatype for one column
-            MPI_Type_create_hvector(local_rows,
-                                    1,
-                                    (local_cols + 2) * sizeof(real_t),
-                                    MPI_DOUBLE,
-                                    &one_col_datatype);
-            MPI_Type_commit(&one_col_datatype);
-            
-            
-            int block_lengths_col[NUM_BLOCKS] = {1};  //The number of elements in the row (minus the edges)
-            //Datatype for all three columns
-            MPI_Type_create_hindexed(NUM_BLOCKS,
-                                     block_lengths_col,
-                                     displacements, //The displacement is the same as for the one with rows
-                                     one_col_datatype,
-                                     &all_col_datatype);
-            MPI_Type_commit(&all_col_datatype);
-            
-            
-            commited_datatypes = 1;
-        }
-        
-        //North-South
-        //Send north and receive from south
-        
-        //printf("\n\n%d: Sending data to from %d, to %d:\n", iteration, rank, north);
-        //for (int i = local_cols / 2; i < local_cols / 2 + 10; ++i)
-        //    printf("%f, ", PN(1, 1 + i));
-        //printf("\n\n");
-        MPI_Sendrecv(&PN(1, 1), 1, all_row_datatype, north, 0,
-                     &PN(1, local_cols + 1), 1, all_row_datatype, south, 0,
-                     cart, MPI_STATUS_IGNORE);
-        //printf("\n\n%d: Receiving data to from %d, to %d:\n", iteration, south, rank);
-        //for (int i = local_cols / 2; i < local_cols / 2 + 10; ++i)
-        //    printf("%f, ", PN(local_rows + 1, 1 + i));
-        //printf("\n\n");
-        //
-        //South-North
-        //Send south and receive from north
-        
-        MPI_Sendrecv(&PN(1, local_cols), 1, all_row_datatype, south, 0,
-                     &PN(1, 0), 1, all_row_datatype, north, 0,
-                     cart, MPI_STATUS_IGNORE);
-        
-        //East-West
-        //Send east and receive from west
-        
-        MPI_Sendrecv(&PN(local_rows, 1), 1, all_col_datatype, east, 0,
-                     &PN(0, 1), 1, all_col_datatype, west, 0,
-                     cart, MPI_STATUS_IGNORE);
-        
-        //West-East
-        //Send west and receive from east
-        
-        MPI_Sendrecv(&PN(1, 1), 1, all_col_datatype, west, 0,
-                     &PN(local_rows + 1, 1), 1, all_col_datatype, east, 0,
-                     cart, MPI_STATUS_IGNORE);
-        
         
         // TODO 4 Change application of boundary condition to match cartesian topology
         boundary_condition(mass[0], 1);
@@ -340,59 +304,37 @@ void time_step(void)
 void boundary_condition(real_t *domain_variable, int sign)
 {
     // TODO 4 Change application of boundary condition to match cartesian topology
-    
-    //All places where N is used change to local_row if in y-coord, and local_col if in x-coord.
-    //We also know that in this program the neighbours have been found, but a failsafe is added just to be sure.
-    
-    if (!found_neighbours) //Failsafe check
-        exit(EXIT_FAILURE); //We have not checked for neighbours yet, this is not supposed to happen
 
 #define VAR(y, x) domain_variable[(y)*(local_cols+2)+(x)]
     
     if (north < 0 && west < 0)
-        VAR(0, 0) = sign * VAR(2, 2); //North-West
+        VAR(0, 0) = sign * VAR(2, 2);
     if (north < 0 && east < 0)
-        VAR(local_rows + 1, 0) = sign * VAR(local_rows - 1, 2); //North-East
+        VAR(N + 1, 0) = sign * VAR(N - 1, 2);
     if (south < 0 && west < 0)
-        VAR(0, local_cols + 1) = sign * VAR(2, local_cols - 1); //South-West
+        VAR(0, N + 1) = sign * VAR(2, N - 1);
     if (south < 0 && east < 0)
-        VAR(local_rows + 1, local_cols + 1) = sign * VAR(local_rows - 1, local_cols - 1); //South-East
+        VAR(N + 1, N + 1) = sign * VAR(N - 1, N - 1);
+    
     
     if (north < 0)
-        for (int_t y = 1; y <= local_rows; y++) //North-side
-            VAR(y, 0) = sign * VAR(y, 2);
+        for (int_t y = 1; y <= local_rows; y++) VAR(y, 0) = sign * VAR(y, 2);
+    
     if (south < 0)
-        for (int_t y = 1; y <= local_rows; y++) //South-side
-            VAR(y, local_cols + 1) = sign * VAR(y, local_cols - 1);
+        for (int_t y = 1; y <= local_rows; y++) VAR(y, local_cols + 1) = sign * VAR(y, local_cols - 1);
+    
     if (west < 0)
-        for (int_t x = 1; x <= local_cols; x++) //West-side
-            VAR(0, x) = sign * VAR(2, x);
+        for (int_t x = 1; x <= local_cols; x++) VAR(0, x) = sign * VAR(2, x);
+    
     if (east < 0)
-        for (int_t x = 1; x <= local_cols; x++) //East-side
-            VAR(local_rows + 1, x) = sign * VAR(local_rows - 1, x);
+        for (int_t x = 1; x <= local_cols; x++) VAR(local_rows + 1, x) = sign * VAR(local_rows - 1, x);
     
     /*
-    int coords[NUM_DIMS] = {0}; //The coordinates for the specific process in the grid
-    MPI_Cart_get(cart, NUM_DIMS, dims, periods, coords);
-     */
-    /*
     if (rank == 0)
-        for (int_t y = 1; y <= local_rows; ++y)
+        for (int_t y = 1; y <= 5; ++y)
             for (int_t x = 1; x <= local_cols; ++x)
-                    VAR(y, x) = (real_t)(x) / (local_cols);
-                    
-    
-    if (rank == 0)
-    {
-        for (int_t x = 0; x <= (local_cols + 1) / 1; ++x)
-            for (int_t y = local_rows - 4; y <= local_rows + 1; ++y)
                 VAR(y, x) = 0;
-        
-        for (int_t y = 0; y <= (local_rows + 1) / 1; ++y)
-            for (int_t x = local_cols - 4; x <= local_cols + 1; ++x)
-                VAR(y, x) = 0;
-        
-    }*/
+    */
 #undef VAR
 }
 
@@ -403,11 +345,20 @@ void create_types(void)
     MPI_Comm_rank(cart, &cart_rank);
     MPI_Cart_coords(cart, cart_rank, 2, cart_offset);
     
-    MPI_Type_create_subarray(2, (int[2]) {local_rows + 2, local_cols + 2}, (int[2]) {local_rows, local_cols},
-                             (int[2]) {1, 1}, MPI_ORDER_C, MPI_DOUBLE, &subgrid);
-    MPI_Type_create_subarray(2, (int[2]) {N, N}, (int[2]) {local_rows, local_cols},
-                             (int[2]) {cart_offset[0] * local_rows, cart_offset[1] * local_cols}, MPI_ORDER_C,
-                             MPI_DOUBLE, &grid);
+    MPI_Type_create_subarray(2,
+                             (int[2]) {local_rows + 2, local_cols + 2},
+                             (int[2]) {local_rows, local_cols},
+                             (int[2]) {1, 1},
+                             MPI_ORDER_C,
+                             MPI_DOUBLE,
+                             &subgrid);
+    
+    MPI_Type_create_subarray(2,
+                             (int[2]) {N, N}, (int[2]) {local_rows, local_cols},
+                             (int[2]) {cart_offset[0] * local_rows, cart_offset[1] * local_cols},
+                             MPI_ORDER_C,
+                             MPI_DOUBLE,
+                             &grid);
     
     MPI_Type_commit(&subgrid);
     MPI_Type_commit(&grid);
@@ -418,8 +369,6 @@ void domain_init(void)
 {
     // TODO 2 Find the number of columns and rows of each subgrid
     // Hint: you can get useful information from the cartesian communicator
-    
-    //Divide by how many processes are in the dimensions
     local_rows = N / dims[0];
     local_cols = N / dims[1];
     
@@ -448,13 +397,27 @@ void domain_init(void)
     
     int coords[NUM_DIMS] = {0}; //The coordinates for the specific process in the grid
     MPI_Cart_get(cart, NUM_DIMS, dims, periods, coords);
+    
+    //int MPI_Cart_coords(MPI_Comm comm,
+    //                    int rank,
+    //                    int maxdims,
+    //                    int coords[])
+    //int test[NUM_DIMS] = {0};
+    //MPI_Cart_coords(cart, rank, NUM_DIMS, test);
+    
     //printf("\n\n%d: coords: (%d, %d)\n\n", rank, coords[0], coords[1]);
     printf("\n\n%d: DIMS: (%d, %d)\n\n", rank, dims[0], dims[1]);
     printf("\n\n%d: Coord: (%d, %d)\n\n", rank, coords[0], coords[1]);
-    //We simply multiply the number of rows and cols with the coord in x and y directions.
+    //printf("\n\n%d: Test: (%d, %d)\n\n", rank, test[0], test[1]);
+    
+    
     int_t local_x_offset = local_cols * coords[1];
     int_t local_y_offset = local_rows * coords[0];
+    
     printf("\n\n%d: offset: (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset);
+    
+    printf("\n\n%d: (%lld, %lld) -> (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset,
+           local_x_offset + local_cols, local_y_offset + local_rows);
     
     for (int_t y = 1; y <= local_rows; y++)
     {
@@ -501,7 +464,8 @@ void domain_save(int_t iteration)
 }
 
 
-void domain_finalize(void)
+void
+domain_finalize(void)
 {
     free(mass[0]);
     free(mass[1]);
