@@ -170,7 +170,7 @@ int main(int argc, char **argv)
         //I tried to send all the data in one message, but as described above, the displacement between the
         //data arrays are different across the processors, and non-deterministic.
         real_t *domain[3] = {&PN(0, 0), &PNU(0, 0), &PNV(0, 0)};
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 3; ++i) //Looping through to send mass, mass_v_x and mass_v_y
         {
             #define VAR(y, x)domain[i][(y)*(local_cols+2)+(x)]
             
@@ -246,6 +246,10 @@ int main(int argc, char **argv)
 void time_step(void)
 {
     // TODO 3 Update the area of iteration in the time step
+    
+    //All that is needed to do here is to change N to the local rows and cols, respectively
+    //so we only iterate over the allocated memory, for each process's sub-grid
+    
     for (int_t y = 1; y <= local_rows; y++)
         for (int_t x = 1; x <= local_cols; x++)
         {
@@ -301,6 +305,10 @@ void boundary_condition(real_t *domain_variable, int sign)
 {
     // TODO 4 Change application of boundary condition to match cartesian topology
 
+    //Here we check if the process lack neighbours in the given direction.
+    //If so, then they are at that boundary and we need to apply the conditions
+    //for that part.
+    
 #define VAR(y, x) domain_variable[(y)*(local_cols+2)+(x)]
     
     if (north < 0 && west < 0)
@@ -325,6 +333,7 @@ void boundary_condition(real_t *domain_variable, int sign)
     if (east < 0)
         for (int_t x = 1; x <= local_cols; x++) VAR(local_rows + 1, x) = sign * VAR(local_rows - 1, x);
     
+    //Test code
     /*
     if (rank == 0)
         for (int_t y = 1; y <= 5; ++y)
@@ -410,6 +419,8 @@ void domain_init(void)
 {
     // TODO 2 Find the number of columns and rows of each subgrid
     // Hint: you can get useful information from the cartesian communicator
+    
+    //We use the number depth of the dimension to divide the rows and cols into equal sizes
     local_rows = N / dims[0];
     local_cols = N / dims[1];
     
@@ -437,21 +448,14 @@ void domain_init(void)
     // Hint: you can get useful information from the cartesian communicator
     
     int coords[NUM_DIMS] = {0}; //The coordinates for the specific process in the grid
-    MPI_Cart_get(cart, NUM_DIMS, dims, periods, coords);
+    MPI_Cart_get(cart, NUM_DIMS, dims, periods, coords); //Get the coordinate data
     
-    //int MPI_Cart_coords(MPI_Comm comm,
-    //                    int rank,
-    //                    int maxdims,
-    //                    int coords[])
-    //int test[NUM_DIMS] = {0};
-    //MPI_Cart_coords(cart, rank, NUM_DIMS, test);
     
    
     //printf("\n\n%d: DIMS: (%d, %d)\n\n", rank, dims[0], dims[1]);
     //printf("\n\n%d: Coord: (%d, %d)\n\n", rank, coords[0], coords[1]);
-    //printf("\n\n%d: Test: (%d, %d)\n\n", rank, test[0], test[1]);
     
-    
+    //The offsets are equal to the local values of row and col multiplied with their coord values
     int_t local_x_offset = local_cols * coords[1];
     int_t local_y_offset = local_rows * coords[0];
     
