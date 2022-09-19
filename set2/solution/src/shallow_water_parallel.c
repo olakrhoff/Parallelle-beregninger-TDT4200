@@ -99,6 +99,8 @@ int periods[NUM_DIMS] = {0}; //Init the array to zeros
 //To find out who our neighbours are is not necessary to do more than once
 static int north, east, south, west;
 
+MPI_Datatype column_datatype /*North-South*/, row_datatype; //, all_column_datatype, all_row_datatype;
+
 int main(int argc, char **argv)
 {
     MPI_Init(&argc, &argv);
@@ -153,52 +155,8 @@ int main(int argc, char **argv)
     MPI_Cart_shift(cart, 0, 1, &west, &east);
     
     
-    printf("\n\n%d: N: %d, E: %d, S: %d, W: %d\n\n", rank, north, east, south, west);
+    //printf("\n\n%d: N: %d, E: %d, S: %d, W: %d\n\n", rank, north, east, south, west);
     
-    MPI_Datatype column_datatype /*North-South*/, row_datatype; //, all_column_datatype, all_row_datatype;
-    
-    //Datatype for one column
-    MPI_Type_create_hvector(local_rows,
-                            1, //The block length, which is just one value
-                            (local_cols + 2) *
-                            sizeof(real_t), //Displacement between each value (need to skip one row ahead)
-                            MPI_DOUBLE,
-                            &column_datatype);
-    MPI_Type_commit(&column_datatype);
-    
-    //Datatype for one row
-    MPI_Type_contiguous(local_cols,
-                        MPI_DOUBLE,
-                        &row_datatype);
-    MPI_Type_commit(&row_datatype);
-    
-    const int NUM_BLOCKS = 3; //mass, mass_v_x, mass_v_y
-    /*
-     * I tried to use a collecting datatype to store all the data, but the displacement varies from each process, so there was no success in it
-    const MPI_Aint displacements[NUM_BLOCKS] = {0, &PNU(0, 0) - &PN(0, 0), &PNV(0, 0) - &PN(0,0)}; //The displacements are equal to the offset between the arrays, PN, PNU and PNV, in memory
-    printf("\n\n%d: addresses: ", rank);
-    for (int i = 0; i < NUM_BLOCKS; ++i)
-        printf("%td, ", displacements[i]);
-    printf("\n\n");
-    
-    int block_lengths_row[NUM_BLOCKS] = {local_cols};  //The number of elements in the row (minus the edges)
-    
-    MPI_Type_create_hindexed(NUM_BLOCKS,
-                             block_lengths_row,
-                             displacements,
-                             MPI_DOUBLE,
-                             &all_row_datatype);
-    MPI_Type_commit(&all_row_datatype);
-    
-    int block_lengths_column[NUM_BLOCKS] = {1};  //We only have one column_datatype per column
-    
-    MPI_Type_create_hindexed(NUM_BLOCKS,
-                             block_lengths_column,
-                             displacements,
-                             column_datatype,
-                             &all_column_datatype);
-    MPI_Type_commit(&all_column_datatype);
-    */
     
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
@@ -211,8 +169,8 @@ int main(int argc, char **argv)
         //read writes, each iteration. It also is much more overhead and can damage memory cache success.
         //I tried to send all the data in one message, but as described above, the displacement between the
         //data arrays are different across the processors, and non-deterministic.
-        real_t *domain[NUM_BLOCKS] = {&PN(0, 0), &PNU(0, 0), &PNV(0, 0)};
-        for (int i = 0; i < NUM_BLOCKS; ++i)
+        real_t *domain[3] = {&PN(0, 0), &PNU(0, 0), &PNV(0, 0)};
+        for (int i = 0; i < 3; ++i)
         {
             #define VAR(y, x)domain[i][(y)*(local_cols+2)+(x)]
             
@@ -400,6 +358,51 @@ void create_types(void)
     
     MPI_Type_commit(&subgrid);
     MPI_Type_commit(&grid);
+    
+    
+    
+    //Datatype for one column
+    MPI_Type_create_hvector(local_rows,
+                            1, //The block length, which is just one value
+                            (local_cols + 2) *
+                            sizeof(real_t), //Displacement between each value (need to skip one row ahead)
+                            MPI_DOUBLE,
+                            &column_datatype);
+    MPI_Type_commit(&column_datatype);
+    
+    //Datatype for one row
+    MPI_Type_contiguous(local_cols,
+                        MPI_DOUBLE,
+                        &row_datatype);
+    MPI_Type_commit(&row_datatype);
+    
+    const int NUM_BLOCKS = 3; //mass, mass_v_x, mass_v_y
+    /*
+     * I tried to use a collecting datatype to store all the data, but the displacement varies from each process, so there was no success in it
+    const MPI_Aint displacements[NUM_BLOCKS] = {0, &PNU(0, 0) - &PN(0, 0), &PNV(0, 0) - &PN(0, 0)}; //The displacements are equal to the offset between the arrays, PN, PNU and PNV, in memory
+    printf("\n\n%d: addresses: ", rank);
+    for (int i = 0; i < NUM_BLOCKS; ++i)
+        printf("%td, ", displacements[i]);
+    printf("\n\n");
+    
+    int block_lengths_row[NUM_BLOCKS] = {local_cols};  //The number of elements in the row (minus the edges)
+    
+    MPI_Type_create_hindexed(NUM_BLOCKS,
+                             block_lengths_row,
+                             displacements,
+                             MPI_DOUBLE,
+                             &all_row_datatype);
+    MPI_Type_commit(&all_row_datatype);
+    
+    int block_lengths_column[NUM_BLOCKS] = {1};  //We only have one column_datatype per column
+    
+    MPI_Type_create_hindexed(NUM_BLOCKS,
+                             block_lengths_column,
+                             displacements,
+                             column_datatype,
+                             &all_column_datatype);
+    MPI_Type_commit(&all_column_datatype);
+    */
 }
 
 
@@ -410,7 +413,7 @@ void domain_init(void)
     local_rows = N / dims[0];
     local_cols = N / dims[1];
     
-    printf("\n\n%d: locals: (%d, %d)\n\n", rank, local_cols, local_rows);
+    //printf("\n\n%d: locals: (%d, %d)\n\n", rank, local_cols, local_rows);
     
     int_t local_size = (local_rows + 2) * (local_cols + 2);
     
@@ -443,19 +446,18 @@ void domain_init(void)
     //int test[NUM_DIMS] = {0};
     //MPI_Cart_coords(cart, rank, NUM_DIMS, test);
     
-    //printf("\n\n%d: coords: (%d, %d)\n\n", rank, coords[0], coords[1]);
-    printf("\n\n%d: DIMS: (%d, %d)\n\n", rank, dims[0], dims[1]);
-    printf("\n\n%d: Coord: (%d, %d)\n\n", rank, coords[0], coords[1]);
+   
+    //printf("\n\n%d: DIMS: (%d, %d)\n\n", rank, dims[0], dims[1]);
+    //printf("\n\n%d: Coord: (%d, %d)\n\n", rank, coords[0], coords[1]);
     //printf("\n\n%d: Test: (%d, %d)\n\n", rank, test[0], test[1]);
     
     
     int_t local_x_offset = local_cols * coords[1];
     int_t local_y_offset = local_rows * coords[0];
     
-    printf("\n\n%d: offset: (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset);
+    //printf("\n\n%d: offset: (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset);
     
-    printf("\n\n%d: (%lld, %lld) -> (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset,
-           local_x_offset + local_cols, local_y_offset + local_rows);
+    //printf("\n\n%d: (%lld, %lld) -> (%lld, %lld)\n\n", rank, local_x_offset, local_y_offset, local_x_offset + local_cols, local_y_offset + local_rows);
     
     for (int_t y = 1; y <= local_rows; y++)
     {
