@@ -1,5 +1,5 @@
-CC:=gcc
-PARALLEL_CC:=gcc
+CC:=gcc-12
+PARALLEL_CC:=gcc-12
 CFLAGS+= -fopenmp
 LDLIBS+=-lm -pthread
 
@@ -71,7 +71,7 @@ show_omp: purge run_omp viz
 viz:
 	./plot_solution.sh > /dev/null
 	ffmpeg -framerate 10 -i plots/%05d.png video/output.mp4 &> /dev/null
-	#./open_video.sh &> /dev/null
+	./open_video.sh &> /dev/null
 
 
 
