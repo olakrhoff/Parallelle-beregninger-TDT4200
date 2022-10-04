@@ -108,7 +108,7 @@ int main(int argc, char **argv)
         //I have chosen to use the time_step()-function to parallelize
         //time_step();
 
-        #define NUM_THREADS 16
+        #define NUM_THREADS 6
         
         pthread_t* pthreads = (pthread_t *)malloc(sizeof(pthread_t) * NUM_THREADS);
         thread_args_t* args = (thread_args_t * ) malloc(sizeof(thread_args_t) * NUM_THREADS);
@@ -208,23 +208,26 @@ void *pthread_func(void *data)
     
     int_t rows = N / args.num_threads;
     int_t local_y = rows * args.id;
+    int_t new_N = local_y + rows;
+    if (args.id == args.num_threads - 1) //If it is the last thread
+        new_N += N % args.num_threads;
     
     //printf("\n\n%d: %lld -> %lld\n\n", args.id, local_y, local_y + rows);
     
-    for (int_t y = local_y; y <= local_y + rows; y++)
+    for (int_t y = local_y; y <= new_N; y++)
         for (int_t x = 1; x <= N; x++)
         {
             U(y, x) = PNU(y, x) / PN(y, x);
             V(y, x) = PNV(y, x) / PN(y, x);
         }
     
-    for (int_t y = local_y; y <= local_y + rows; y++)
+    for (int_t y = local_y; y <= new_N; y++)
         for (int_t x = 1; x <= N; x++)
         {
             PNUV(y, x) = PN(y, x) * U(y, x) * V(y, x);
         }
     
-    for (int_t y = local_y; y <= local_y + rows + 1; y++)
+    for (int_t y = local_y; y <= new_N + 1; y++)
         for (int_t x = 0; x <= N + 1; x++)
         {
             DU(y, x) = PN(y, x) * U(y, x) * U(y, x)
@@ -233,7 +236,7 @@ void *pthread_func(void *data)
                        + 0.5 * gravity * (PN(y, x) * PN(y, x) / density);
         }
     
-    for (int_t y = local_y; y <= local_y + rows; y++)
+    for (int_t y = local_y; y <= new_N; y++)
         for (int_t x = 1; x <= N; x++)
         {
             PNU_next(y, x) = 0.5 * (PNU(y, x + 1) + PNU(y, x - 1)) - dt * (
@@ -242,7 +245,7 @@ void *pthread_func(void *data)
             );
         }
     
-    for (int_t y = local_y; y <= local_y + rows; y++)
+    for (int_t y = local_y; y <= new_N; y++)
         for (int_t x = 1; x <= N; x++)
         {
             PNV_next(y, x) = 0.5 * (PNV(y + 1, x) + PNV(y - 1, x)) - dt * (
@@ -251,7 +254,7 @@ void *pthread_func(void *data)
             );
         }
     
-    for (int_t y = local_y; y <= local_y + rows; y++)
+    for (int_t y = local_y; y <= new_N; y++)
         for (int_t x = 1; x <= N; x++)
         {
             PN_next(y, x) = 0.25 * (PN(y, x + 1) + PN(y, x - 1) + PN(y + 1, x) + PN(y - 1, x)) - dt * (
