@@ -108,7 +108,7 @@ int main(int argc, char **argv)
         //I have chosen to use the time_step()-function to parallelize
         //time_step();
 
-        #define NUM_THREADS 4
+        #define NUM_THREADS 16
         
         pthread_t* pthreads = (pthread_t *)malloc(sizeof(pthread_t) * NUM_THREADS);
         thread_args_t* args = (thread_args_t * ) malloc(sizeof(thread_args_t) * NUM_THREADS);

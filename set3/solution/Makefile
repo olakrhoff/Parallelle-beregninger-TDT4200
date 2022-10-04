@@ -21,10 +21,10 @@ omp: $(OMP_SRC_FILES)
 serial: $(SERIAL_SRC_FILES)
 	$(CC) $^ $(CFLAGS) $(LDLIBS) -o $@
 
-run: run_pthreads
-check: check_pthreads
-plot: plot_pthreads
-show: show_pthreads
+run: run_omp
+check: check_omp
+plot: plot_omp
+show: show_omp
 
 clean:
 	-rm -f serial pthreads omp 
