@@ -87,6 +87,15 @@ If you do not have an Nvidia GPU available to use, or do not have the correct en
 
 **CUDA**
 
+MACOSX:
+```
+Download the dmg(network) image from the following site:
+https://developer.nvidia.com/cuda-10.2-download-archive?target_os=MacOSX&target_arch=x86_64&target_version=1013&target_type=dmgnetwork
+Run the installer
+
+CUDA 11 and newer does not support MACOSX so we have to get CUDA 10 for this to work on the MACOSX given that the Mac has supporting hardware aswell
+```
+
 Linux/Ubuntu:
 
 ```

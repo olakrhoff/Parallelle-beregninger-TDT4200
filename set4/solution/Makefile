@@ -21,6 +21,7 @@ run: run_parallel
 check: check_parallel
 plot: plot_parallel
 show: show_parallel
+show2: show_parallel2
 
 clean:
 	-rm -f serial parallel 
@@ -53,12 +54,16 @@ plot_parallel: purge run_parallel
 
 show_serial: purge run_serial viz
 show_parallel: purge run_parallel viz
+show_parallel2: purge parallel
+	./parallel -n 2048
+	./plot_solution.sh -n 2048 > /dev/null
+	ffmpeg -framerate 10 -i plots/%05d.png video/output.mp4 &> /dev/null
+	./open_video.sh &> /dev/null
 
 viz:
 	./plot_solution.sh > /dev/null
 	ffmpeg -framerate 10 -i plots/%05d.png video/output.mp4 &> /dev/null
 	./open_video.sh &> /dev/null
-
 
 
 

@@ -100,6 +100,8 @@ int main(int argc, char **argv)
     
     // TODO #2.4: Define the thread block size and calculate the corresponding grid size.
     
+    dim3 threadBlockDims = {1024, 1, 1};
+    dim3 gridDims = {N / 1024 + ((N % 1024) != 0), 1, 1};
     
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
@@ -107,10 +109,9 @@ int main(int argc, char **argv)
         //boundary_condition(h_mass_0, 1);
         //boundary_condition(h_mass_velocity_x_0, -1);
         
-        
         // TODO #1.6: Change the function calls to invoke the kernels with the arguments to the device-side equivalents
-        time_step_1<<<1, 1>>>(d_acceleration_x, d_mass_0, d_velocity_x, N);
-        time_step_2<<<1, 1>>>(d_mass_velocity_x_0, d_mass_velocity_x_1, d_acceleration_x, d_mass_0,
+        time_step_1<<<gridDims, threadBlockDims>>>(d_acceleration_x, d_mass_0, d_velocity_x, N);
+        time_step_2<<<gridDims, threadBlockDims>>>(d_mass_velocity_x_0, d_mass_velocity_x_1, d_acceleration_x, d_mass_0,
                                                    d_mass_1, d_velocity_x, dx, dt, N);
         
         if (iteration % snapshot_frequency == 0)
@@ -141,8 +142,8 @@ int main(int argc, char **argv)
         }
         
         // TODO #1.7: Swap device pointers
-        //swap(&h_mass_0, &h_mass_1);
-        //swap(&h_mass_velocity_x_0, &h_mass_velocity_x_1);
+        swap(&h_mass_0, &h_mass_1);
+        swap(&h_mass_velocity_x_0, &h_mass_velocity_x_1);
     
         swap(&d_mass_0, &d_mass_1);
         swap(&d_mass_velocity_x_0, &d_mass_velocity_x_1);
@@ -154,26 +155,42 @@ int main(int argc, char **argv)
 }
 
 // TODO #1.5: Change the host-side function to be a device-side function
-__device__ void boundary_condition(real_t *domain_variable, int sign, int_t N)
+__device__ void boundary_condition(real_t *domain_variable, int sign, int_t N, bool last)
 {
 #define VAR(x) domain_variable[(x)]
-    VAR(0) = sign * VAR(2);
-    VAR(N + 1) = sign * VAR(N - 1);
+    //if (!last)
+        VAR(0) = sign * VAR(2);
+    //else
+        VAR(N + 1) = sign * VAR(N - 1);
 #undef VAR
 }
 
 // TODO #1.4: Change the function to be a CUDA kernel
 __global__ void time_step_1(real_t *acceleration_x, real_t *mass_0, real_t *velocity_x, int_t N)
 {
-    boundary_condition(mass_0, 1, N);
     
     // TODO #2.1: Define the global index
+    int global_index = threadIdx.x + blockIdx.x * blockDim.x;
+    if (global_index >= N)
+        return;
+    
     // TODO #2.3: Restrict the boundary_condition updates to only be performed by the first and last thread
+    if (global_index == 0 || global_index == N - 1)
+        boundary_condition(mass_0, 1, N, global_index);
+    
+    if (global_index == 0)
+        DU(global_index) = PN(global_index) * U(global_index) * U(global_index)
+                           + 0.5 * gravity * PN(global_index) * PN(global_index) / density;
+    else if (global_index == N - 1)
+        DU(global_index + 2) = PN(global_index + 2) * U(global_index + 2) * U(global_index + 2)
+                           + 0.5 * gravity * PN(global_index + 2) * PN(global_index + 2) / density;
+    /*
     for (int_t x = 0; x <= N + 1; x++)
-    {
+    {*/
+    int_t x = global_index + 1; //This takes care of 1 -> N
         DU(x) = PN(x) * U(x) * U(x)
                 + 0.5 * gravity * PN(x) * PN(x) / density;
-    }
+    /*}*/
 }
 
 // TODO #1.4: Change the function to be a CUDA kernel
@@ -181,27 +198,35 @@ __global__ void
 time_step_2(real_t *mass_velocity_x_0, real_t *mass_velocity_x_1, real_t *acceleration_x, real_t *mass_0,
             real_t *mass_1, real_t *velocity_x, real_t dx, real_t dt, int_t N)
 {
-    boundary_condition(mass_velocity_x_0, -1, N);
     
     // TODO #2.1: Define the global index
+    int global_index = threadIdx.x + blockIdx.x * blockDim.x;
+    if (global_index >= N)
+        return;
+    
+    if (global_index == 0 || global_index == N - 1)
+        boundary_condition(mass_0, 1, N, global_index);
+    
+    /*
     for (int_t x = 1; x <= N; x++)
-    {
+    {*/
+    int_t x = global_index + 1;
         PNU_next(x) = 0.5 * (PNU(x + 1) + PNU(x - 1)) - dt * (
                 (DU(x + 1) - DU(x - 1)) / (2 * dx)
         );
-    }
-    
+    /*}*/
+    /*
     for (int_t x = 1; x <= N; x++)
-    {
+    {*/
         PN_next(x) = 0.5 * (PN(x + 1) + PN(x - 1)) - dt * (
                 (PNU(x + 1) - PNU(x - 1)) / (2 * dx)
         );
-    }
-    
+    /*}*/
+    /*
     for (int_t x = 1; x <= N; x++)
-    {
+    {*/
         U(x) = PNU_next(x) / PN_next(x);
-    }
+    /*}*/
 }
 
 
