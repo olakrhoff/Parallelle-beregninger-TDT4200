@@ -101,7 +101,7 @@ int main(int argc, char **argv)
     // TODO #2.4: Define the thread block size and calculate the corresponding grid size.
     
     dim3 threadBlockDims = {1024, 1, 1};
-    dim3 gridDims = {N / 1024 + ((N % 1024) != 0), 1, 1};
+    dim3 gridDims = {(uint32_t)(N / 1024) + ((N % 1024) != 0), 1, 1};
     
     for (int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
@@ -155,12 +155,10 @@ int main(int argc, char **argv)
 }
 
 // TODO #1.5: Change the host-side function to be a device-side function
-__device__ void boundary_condition(real_t *domain_variable, int sign, int_t N, bool last)
+__device__ void boundary_condition(real_t *domain_variable, int sign, int_t N)
 {
 #define VAR(x) domain_variable[(x)]
-    //if (!last)
         VAR(0) = sign * VAR(2);
-    //else
         VAR(N + 1) = sign * VAR(N - 1);
 #undef VAR
 }
@@ -176,12 +174,12 @@ __global__ void time_step_1(real_t *acceleration_x, real_t *mass_0, real_t *velo
     
     // TODO #2.3: Restrict the boundary_condition updates to only be performed by the first and last thread
     if (global_index == 0 || global_index == N - 1)
-        boundary_condition(mass_0, 1, N, global_index);
+        boundary_condition(mass_0, 1, N);
     
-    if (global_index == 0)
+    if (global_index == 0) //Handles 0
         DU(global_index) = PN(global_index) * U(global_index) * U(global_index)
                            + 0.5 * gravity * PN(global_index) * PN(global_index) / density;
-    else if (global_index == N - 1)
+    else if (global_index == N - 1) //Handles N + 1
         DU(global_index + 2) = PN(global_index + 2) * U(global_index + 2) * U(global_index + 2)
                            + 0.5 * gravity * PN(global_index + 2) * PN(global_index + 2) / density;
     /*
@@ -205,7 +203,7 @@ time_step_2(real_t *mass_velocity_x_0, real_t *mass_velocity_x_1, real_t *accele
         return;
     
     if (global_index == 0 || global_index == N - 1)
-        boundary_condition(mass_0, 1, N, global_index);
+        boundary_condition(mass_velocity_x_0, -1, N);
     
     /*
     for (int_t x = 1; x <= N; x++)
