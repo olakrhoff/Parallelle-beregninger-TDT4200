@@ -153,7 +153,7 @@ void time_step(void)
             DV(y, x) = PN(y, x) * V(y, x) * V(y, x)
                        + 0.5 * gravity * (PN(y, x) * PN(y, x) / density);
         }
-    
+
     #pragma omp parallel for
     for (int_t y = 1; y <= N; y++)
         for (int_t x = 1; x <= N; x++)
